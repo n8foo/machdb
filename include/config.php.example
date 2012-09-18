@@ -1,0 +1,30 @@
+<?php 
+
+global $mysqlserver;
+global $mysqluser;
+global $mysqlpassword;
+global $mysqldatabase;
+global $proprietary;
+global $date;
+global $templatechoice;
+global $webroot;
+global $logfile;
+global $loglevel;
+global $snmp;
+global $snmpcommunity;
+
+$mysqlserver = 'localhost';
+$mysqluser = 'user';
+$mysqlpassword = 'pass';
+$mysqldatabase = 'machdb';
+$proprietary = 'Company Proprietary';
+$date = date(DATE_RFC822);
+$templatechoice = 'industry';
+$webroot = '/var/www/html/machdb';
+$logfile = '/var/log/machdb';
+$loglevel = '3';
+$snmp = 1; // include snmp tricks
+$snmpcommunity = "public"; //snmp community name
+
+
+?>

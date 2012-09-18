@@ -1,0 +1,384 @@
+#!/usr/bin/perl 
+# This file is part of MachDB.  For license info, read LICENSE
+#
+# $Id: gather.SunOS.sparc 6703 2007-12-14 15:47:53Z stpierre $
+
+use strict;
+use XML::Simple qw(:strict);
+
+# must be run as root
+`/usr/xpg4/bin/id -u` == 0 || die "must be run as root";
+
+my $XMLFILE = "/usr/local/machdb/host.xml";
+
+##############################################
+# Main
+##############################################
+my $host;
+my %name;
+my %cpuinfo;
+my %meminfo;
+my %scsi;
+my %nic;
+my %os;
+my %packages;
+
+
+# 1st argument can be user, 2nd a comment
+if ($ARGV[0]) {
+    $host->{user} = $ARGV[0];
+    $host->{comment} = $ARGV[1];
+}
+
+my $platform = `uname -i`;
+chomp($platform);
+my $prtdiag = "/usr/platform/$platform/sbin/prtdiag -v";
+
+open(PRTDIAG, "$prtdiag |") or die "Couldn't invoke $prtdiag: $!";
+my @prtdiag = <PRTDIAG>;
+chomp(@prtdiag);
+
+getcpuinfo();
+getmeminfo();
+gethostname();
+getdiskinfo();
+getnetinfo();
+getmounts();
+getosinfo();
+getpackages();
+getpcihardware();
+getdfg();
+getbios();
+getsystem();
+getmboard();
+getchassis();
+printxml();
+
+
+##############################################
+# Functions
+##############################################
+
+##############################################
+# Print Out XML
+##############################################
+sub printxml {
+    open (XMLFILE,">$XMLFILE") or die "Couldn't open $XMLFILE: $!";
+    print XMLFILE XMLout($host,KeyAttr => [],noattr => 1,xmldecl => '<?xml version="1.0"?>',RootName => 'host');
+    close (XMLFILE);
+}
+##############################################
+
+
+##############################################
+## get system info
+##############################################
+
+sub getsystem {
+    foreach (@prtdiag) {
+	if (/^System Configuration: /) {
+	    s/^System Configuration: //;
+	    # this can be formatted in one of two ways:
+	    #
+	    # Sun Microsystems  sun4u Sun Fire V210
+	    # Sun Microsystems Sun Fire V20z
+
+	    my $divider = `uname -m`;
+	    chomp($divider);
+	    if (/$divider/) { # type 1
+		($host->{system}{vendor}, $host->{system}{name}) =
+		    split(/\s*$divider\s*/);
+		$host->{system}{name} =~ s/\s*\(.*\)//;
+	    } else { # type 2
+		$host->{system}{vendor} = 'Sun Microsystems';
+		s/^Sun Microsystems\s+//;
+		$host->{system}{name} = $_;
+	    }
+	}
+    }
+}
+##############################################
+
+
+##############################################
+## get chassis
+##############################################
+
+sub getchassis {
+    # don't know how to get this data from Solaris
+}
+##############################################
+
+
+##############################################
+## get mboard
+##############################################
+
+sub getmboard {
+    # don't know how to get this data from Solaris
+}
+##############################################
+
+
+##############################################
+## get bios info
+##############################################
+
+sub getbios {
+    foreach (@prtdiag) {
+	if (/^\s+OBP\s+/) {
+	    s/^\s+//;
+	    (undef,$host->{bios}{version},$host->{bios}{date}) = (split)[0,1,2];
+	    $host->{bios}{vendor} = "Sun";
+	}
+    }    
+}
+##############################################
+
+
+
+##############################################
+## get hostname info
+##############################################
+sub gethostname {
+    my $hostname = `/usr/bin/hostname`;
+    chomp($hostname);
+    $hostname =~ s/\..*//g;
+    my $domainname = `/usr/bin/domainname`;
+    chomp($domainname);
+    $name{domainname} = $domainname;
+    $name{hostname} = $hostname;
+    # hostname info
+    $host->{domain} = $name{"domainname"};
+    $host->{hostname} = $name{"hostname"};
+} 
+
+##############################################
+## get info from cpu
+##############################################
+sub getcpuinfo {
+    my $state = 'L';
+    my $count = 0;
+    my ($cache, $name, $speed);
+    foreach (@prtdiag) {
+	if ($state eq 'L') {
+	    $state = 'F' if /^=+\s+CPUs?\s+=+$/;
+	} elsif ($state eq 'F') {
+	    $state = 'C' if /^[\-\s]+$/;
+	} elsif ($state eq 'C') {
+	    last if /^\s*$/;
+	    $count++;
+	    # I've seen two possible structures to the CPUs section:
+	    #
+	    # ID freq freq_units cache type mask status location
+	    # location ID module freq cache type mask
+	    #
+	    # location is alphanumeric and ID is purely numeric, so we should be able to 
+	    # discern between the two based on the first field
+	    if (/^\d+\s/) { # type 1
+		(undef,$speed,undef,$cache,$name,undef,undef,undef) = split;
+	    } else { # type 2
+		(undef,undef,undef,$speed,$cache,$name,undef) = split;
+	    }
+
+	    $cache =~ s/[^0-9]*//;
+
+	    $name =~ s/^SUNW,//;
+	    $name =~ s/^US/UltraSPARC/;
+	}
+    }
+
+    $host->{cpu}{count} = $count;
+    $host->{cpu}{name}  = $name;
+    $host->{cpu}{cache} = $cache;
+    $host->{cpu}{speed} = $speed;
+} 
+
+
+##############################################
+## get info from memory
+##############################################
+sub getmeminfo {
+    my ($memtotal, $swaptotal);
+    foreach (@prtdiag) {
+	if (/^Memory size: /) {
+	    s/^Memory size:\s+//;
+	    $memtotal = $_;
+	    if ($memtotal =~ /Mb|Megabytes/i) {
+		$memtotal =~ s/\s*(?:Mb|Megabytes)//i;
+	    } elsif ($memtotal =~ /Gb|Gigabytes/i) {
+		$memtotal =~ s/\s*(?:Gb|Gigabytes)//i;
+		$memtotal *= 1024;
+	    }
+	    # else, we assume it's in Mb
+	}
+    }
+
+    open(SWAP, "/usr/sbin/swap -l 2>&1 |") 
+	or warn "Couldn't run /usr/sbin/swap -l: $!\n";
+    while (<SWAP>) {
+	if (/^\//) {
+	    # this is reported in 512-byte blocks, so we convert it to Mb
+	    $swaptotal += ((split)[3] / (2 * 1024))
+	}
+    }
+
+    $host->{memory}{memtotal}  = $memtotal;
+    $host->{memory}{swaptotal} = $swaptotal;
+} 
+
+
+##############################################
+## get disk info
+##############################################
+sub getdiskinfo {
+    # don't know how to get this data from Solaris
+}
+
+##############################################
+## get network info
+##############################################
+sub getnetinfo {
+    my (@nics);
+    open (IFCONFIG,"/sbin/ifconfig -a |") || die "Cannot open /sbin/ifconfig";
+    my ($macaddr,$ipaddr,$broadcast,$netmask,$ipv6addr,$interface);
+    while (<IFCONFIG>) {	
+	chomp();
+	if (/^(\S+):/ ) {
+	    # we are in a device block
+	    my $temp = $1;
+	    # add previous interface to list of NICs
+	    if ($interface &&
+		$interface !~ /^lo\d/) {
+		my %nic;
+		$nic{interface} = $interface if $interface;
+		$nic{macaddr} = $macaddr if $macaddr;
+		$nic{ipaddr} = $ipaddr if $ipaddr;
+		$nic{netmask} = $netmask if $netmask;
+		$nic{broadcast} = $broadcast if $broadcast;
+		push(@nics,\%nic);
+	    }
+	    undef $interface;
+	    undef $macaddr;
+	    undef $ipaddr;
+	    undef $netmask;
+	    undef $broadcast;
+
+	    $interface = $temp;
+	} elsif (/.*\s+ether\s+((\w{1,2}:){5}\w{1,2})/) {
+	    $macaddr = $1;
+	    # since we can't easily determine the primary interface on Solaris (like eth0 on Linux),
+	    # we just use the first MAC address we find.
+	    $host->{hwid} = $macaddr unless $host->{hwid};
+	} elsif (/.*\s+inet ((\d{1,3}\.){3}\d{1,3})/) {
+	    $ipaddr = $1;
+	    if (/.*\s+broadcast ((\d{1,3}\.){3}\d{1,3})/) {
+		$broadcast = $1;
+	    }
+	    if (/.*\s+netmask ([0-9a-f]+)/) {
+		# Solaris netmasks are in undotted hex, so we convert them to pretty decimals
+		my $mask = $1;
+		for (my $i = 0; $i < 4; $i++) {
+		    $netmask .= hex(substr($mask, $i * 2, 2)) . ".";
+		}
+		chop($netmask); # remove tailing dot left by fencepost problem in loop
+	    }
+	}
+    }
+    if ($interface &&
+	$interface !~ /^lo\d/) {
+	my %nic;
+	$nic{interface} = $interface if $interface;
+	$nic{macaddr} = $macaddr if $macaddr;
+	$nic{ipaddr} = $ipaddr if $ipaddr;
+	$nic{netmask} = $netmask if $netmask;
+	$nic{broadcast} = $broadcast if $broadcast;
+	push(@nics,\%nic);
+    }
+
+    close(IFCONFIG);
+    $host->{nic} = \@nics;
+}
+
+##############################################
+## get mounts
+##############################################
+sub getmounts {
+    my (@dfoutput,$filesystem,$fssize,$mountpoint);
+    my @filesystems;
+    
+    chomp(@dfoutput = `/bin/df -k`);
+    for my $line (@dfoutput) {
+	if ($line =~ /^\// ) {
+	    my %fs;
+	    ($fs{device}, $fs{size}, undef, undef, undef, $fs{mountpoint}) = split(/\s+/, $line);
+	    if ($fs{size} != 0) { # ignore pseudo-fses like /proc
+		# get the fs type
+		my $type = `df -n $fs{mountpoint}`;
+		chomp($type);
+		$type =~ /:\s+(\w+)/;
+		$fs{type} = $1;
+		push(@filesystems, \%fs);
+	    }
+	} 
+	
+    }
+    $host->{filesystem} = \@filesystems;
+}
+
+##############################################
+## get kernel
+##############################################
+
+sub getosinfo {
+    chomp($host->{kernel} = `/bin/uname -sr`);
+    chomp($host->{arch} = `/bin/uname -m`);
+    chomp($host->{basearch} = `/bin/uname -p`);
+    $host->{kernel} =~ /5\.([0-9]+)/;
+    $host->{osname} = "Solaris $1";
+}
+
+##############################################
+## get PCI hardware
+##############################################
+
+sub getpcihardware {
+    # this isn't used in MachDB yet, so I'm not going to worry about it
+}
+
+
+##############################################
+## get default gateway
+##############################################
+
+sub getdfg {
+    # not sure how to get this from Solaris
+}
+
+##############################################
+## get packages
+##############################################
+sub getpackages {
+    my ($name, $arch, $version);
+    my @packages;
+    
+    open(PKGINFO, "pkginfo -x |") or warn "Couldn't execute pkginfo -x: $!\n";
+    foreach (<PKGINFO>) {
+	chomp;
+	if (/^(\S+)/) {
+	    $name = $1;
+	} elsif (/^\s+\((.*)\)\s+(.*)$/) {
+	    $arch = $1;
+	    $version = $2;
+	    $version =~ s/,REV=.*$//;
+	    push(@packages, { name => $name,
+			      arch => $arch,
+			      version => $version,
+		 }
+		);
+	}
+    }
+    close(PKGINFO);
+
+    $host->{package} = \@packages;
+}

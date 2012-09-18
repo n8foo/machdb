@@ -1,0 +1,178 @@
+MachDB 0.5.2  				Apr  16 2009
+Nathan Hubbard				machdb (at) unmx.com
+
+
+BASIC:
+	MachDB is a machine database that lets you catalog and track
+	information about your hosts.  It consists of an information 
+	collector, a web front end and scripts that live on each 
+	host that gather the data.
+
+	A few sample gathering scripts have been provided in the 
+	contrib directory of the machdb distribution.  You can use 
+	this as a template for your own scripts, or write them 
+	in any language you choose. The data sent back to the 
+	aggregator is sent as an XML file (that can be generated 
+	however you wish). Again, you can use the contributed 
+	gathering scripts as a template, or see the XML specification
+	to create your own.
+
+	I would recommend scanning the machdb.org wiki for instructions
+	specific to your distribution.  If there aren't any, add them!
+	
+	If you are upgrading from a previous version, please see
+	the information in the CHANGELOG
+
+	For the latest information, documentation and FAQ, please
+	visit http://www.machdb.org 
+	
+AUTO INSTALL:
+
+	Run contrib/setup.sh to auto-configure.  It will attempt to do the 
+	install of XML::Simple and LWP perl modules, but use at your 
+	own risk.
+
+MANUAL INSTALL:
+
+	Create a directory with root permissions: /var/machdb.  This
+	is where the XML output is stored before being shipped off
+	to the collector
+	
+	You will need XML::Simple and LWP to use the example XML
+	gathering (gather-centos4-i386) and posting (machdb-send)
+	tools.  Others may require other libs but we will assume this
+	basic need.
+
+	With CPAN:
+		perl -MCPAN -e shell
+		> install XML::Simple
+		> install LWP
+
+	XML::Simple RPM downloaded from:
+		http://dag.wieers.com/rpm/packages/perl-XML-Simple/
+
+	I install the gathering and sending scripts in /usr/local/sbin
+	on my hosts, but you can put them anywhere you like.  They 
+	must be run as root (although I'm sure that could be changed
+	as well). They are separated to keep the information 
+	gathering and sending abstracted by OS.
+
+
+INSTALLING THE MACHDB BACKEND
+	
+	MachDB was developed on MySQL 5.0.27, PHP 5.1.6, Apache 2.0.59
+	and Smarty 2.6.18.  Your mileage on other versions may vary,
+	however I would recommend at least PHP 5 and MySQL 5.  	
+	
+	Extract the tarball somewhere in your web root.  You will
+	need to install Smarty (http://smarty.php.net/).  Make sure
+	Smarty is in your PHP_INCLUDE_PATH.
+
+	Put the files within the 'collect' directory somewhere in your 
+	webroot.  Suggested path is:
+
+	$WEBROOT/machdb/collect/
+
+	This URL should be accessable via HTTP from the machines you will be 
+	polling.  You can set up access control using your webserver's 
+	access control settings.  Better security will be built into the 
+	collector in the future.  If you require encryption, put the 
+	collect script behind an HTTPS/SSL webserver and modify the 
+	machdb-send script to use HTTPS.  An HTTPS example is included.
+
+	Once you've untarred it, you will need to set certain
+	permissions for the smarty cached templates:
+
+	cd $WEBROOT
+	chown -R apache:apache smarty/cache/
+	chown -R apache:apache smarty/templates_c
+	chmod -R 775 smarty/templates_c
+	chmod -R 775 smarty/cache/
+
+	Where 'apache' is the user your webserver runs as.
+
+	Create a MySQL DB for machdb to use.  Run the database.sql 
+	script to create your DB  
+	
+		mysql -u mysqluser -p mysqldatabse < database.sql
+
+
+	Modify machdb-send to point to your webserver and correct 
+	URL path.
+	
+	Modify include/config.php to add your own mysql settings.
+
+UPGRADING
+	
+	If you are upgrading from a previous version, please see the
+	php and .sql scritps for upgrading.  You would run these
+	like this:
+
+	php contrib/update_0.5.0-0.5.1.php
+	mysql -u mysqluser -p machdb < contrib/update_0.5.0-0.5.1.sql
+
+	The PHP script should do the trick for most people, although
+	you should inspect it to make sure your any custom schema will
+	not be destroyed.  The sql version is there for custom users
+	to take apart.
+
+
+CLIENT USAGE:
+	
+	From the machine you want to add to the db, go into
+	the 'contrib' directory and run the example gathering tool:
+	
+		./gather-centos4-i386
+	
+	Which will output an XML file into /var/machdb/
+	
+	To send the data off to the collector, go into the 'bin'
+	directory and run the example XML sending tool:
+	
+		./machdb-send
+	
+	To see the fruits of your work, point your browser at the web 
+	root where you installed machdb.
+	
+
+ALPHA WARNING
+	You are welcome to use this software, but be ware: I am still
+	making major architectural decisions.  There may be future
+	upgrades in the future that will have no migration path. 
+	You have been warned!
+	
+	Feedback welcome!  I am sure this is full of bugs, but I'll
+	never know without feedback!  Thanks!
+
+	-Nathan
+
+CREDITS
+	This package contains code from the following:
+	
+	Stuart Langridge
+	http://www.kryogenix.org/code/browser/sorttable/
+	
+	Tutorials, examples and thanks to:
+
+	Patrick Hunlock
+	http://www.hunlock.com/blogs/AJAX_for_n00bs
+	http://www.hunlock.com/blogs/Snippets:_Synchronous_AJAX
+	
+	Inspiration
+	
+	Lee Damon aka 'Nomad'
+	Mark Burgess
+	Kyrre Begnum
+	Tobi Oetiker 
+	OSWD (http://www.oswd.org)
+
+	Project Contributors (bugs reports, patches, contributed scripts, ideas, docs, etc)
+	
+	Kyrre Begnum
+	Chris St. Pierre
+	Josh Lothian
+	Steve Soltesz
+	Andreas Unterkircher
+	Dan Flores
+	Jason Antman
+	

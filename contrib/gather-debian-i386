@@ -1,0 +1,695 @@
+#! /usr/bin/perl 
+# This file is part of MachDB.  For license info, read LICENSE
+
+# THIS IS AN EXAMPLE. YMMV
+
+use strict;
+
+# must be run as root
+`id -u` == 0 || die "must be run as root";
+
+use XML::Simple qw(:strict);
+use Data::Dumper;
+
+my $XMLFILE = "/var/machdb/host.xml";
+
+##############################################
+# Main
+##############################################
+my $host;
+my %name;
+my %cpuinfo;
+my %meminfo;
+my %scsi;
+my %nic;
+my %os;
+my %packages;
+
+
+# 1st argument can be user, 2nd a comment
+if ($ARGV[0]) {
+	$host->{user} = $ARGV[0];
+	$host->{comment} = $ARGV[1];
+}
+
+getcpuinfo();
+getmeminfo();
+gethostname();
+getdiskinfo();
+getnetinfo();
+getmounts();
+getosinfo();
+getdebpackages();
+getpcihardware();
+getdfg();
+getbios();
+getsystem();
+getmboard();
+getchassis();
+printxml();
+
+
+##############################################
+# Functions
+##############################################
+
+##############################################
+# Print Out XML
+##############################################
+sub printxml {
+	# print out
+	#print Dumper($host);
+	#print XMLout($host,KeyAttr => [],noattr => 1,xmldecl => '<?xml version="1.0"?>');
+	open (XMLFILE,">$XMLFILE");
+	print XMLFILE XMLout($host,KeyAttr => [],noattr => 1,xmldecl => '<?xml version="1.0"?>',RootName => 'host');
+	close (XMLFILE);
+
+}
+
+
+##############################################
+## get system info
+##############################################
+
+sub getsystem {
+
+my ($vendor,$name,$version,$serial,$uuid);
+open(DmiFh, "/usr/sbin/dmidecode |") or
+  die "problem running dmidecode";
+while(<DmiFh>)
+{
+	next unless /System Information/;
+	# We've found some Bios info, keep going
+	while(<DmiFh>)
+	{
+		# Keep walking the dmidecode output
+		if (/Handle/) {
+			last;
+		} elsif (/Manufacturer:/) {
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$vendor) = split(/: /);
+			chomp($vendor);
+			if ($vendor ne "") {
+				$host->{system}{vendor} = $vendor;
+			}
+		} elsif (/Product Name:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$name) = split(/: /);
+			chomp($name);
+			if ($name ne "") {
+				$host->{system}{name} = $name;
+			}
+		} elsif (/Version:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$version) = split(/: /);
+			chomp($version);
+			if ($version ne "") {
+				$host->{system}{version} = $version;
+			}
+		} elsif (/Serial Number:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$serial) = split(/: /);
+			chomp($serial);
+			if ($serial ne "") {
+				$host->{system}{serial} = $serial;
+			}
+		} elsif (/UUID:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$uuid) = split(/: /);
+			chomp($uuid);
+			if ($uuid ne "") {
+				$host->{system}{uuid} = $uuid;
+				$host->{hwid} = $uuid;  # set HWID to UUID if present
+			}
+		} 
+		next;
+	}
+ }
+close DmiFh;
+
+
+}
+##############################################
+
+
+##############################################
+## get chassis
+##############################################
+
+sub getchassis {
+
+my ($vendor,$serial,$asset_tag,$type);
+open(DmiFh, "/usr/sbin/dmidecode |") or
+  die "problem running dmidecode";
+while(<DmiFh>)
+{
+	next unless /Chassis Information/;
+	# We've found some Bios info, keep going
+	while(<DmiFh>)
+	{
+		# Keep walking the dmidecode output
+		if (/Handle /) {
+			last;
+		} elsif (/Manufacturer:/) {
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$vendor) = split(/: /);
+			chomp($vendor);
+			if ($vendor ne "") {
+				$host->{chassis}{vendor} = $vendor;
+			}
+		} elsif (/Type:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$type) = split(/: /);
+			chomp($type);
+			if ($type ne "") {
+				$host->{chassis}{type} = $type;
+			}
+		} elsif (/Serial Number:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$serial) = split(/: /);
+			chomp($serial);
+			if ($serial ne "") {
+				$host->{chassis}{serial} = $serial;
+			}
+		} elsif (/Asset Tag:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$asset_tag) = split(/: /);
+			chomp($asset_tag);
+			if ($asset_tag ne "") {
+				$host->{chassis}{asset_tag} = $asset_tag;
+			}
+		} 
+		next;
+	}
+ }
+close DmiFh;
+
+}
+##############################################
+
+
+##############################################
+## get mboard
+##############################################
+
+sub getmboard {
+
+my ($vendor,$name,$version,$serial);
+open(DmiFh, "/usr/sbin/dmidecode |") or
+  die "problem running dmidecode";
+while(<DmiFh>)
+{
+	next unless /Base Board Information/;
+	# We've found some Bios info, keep going
+	while(<DmiFh>)
+	{
+		# Keep walking the dmidecode output
+		if (/Handle /) {
+			last;
+		} elsif (/Manufacturer:/) {
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$vendor) = split(/: /);
+			chomp($vendor);
+			if ($vendor ne "") {
+				$host->{motherboard}{vendor} = $vendor;
+			}
+		} elsif (/Version:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$version) = split(/: /);
+			chomp($version);
+			if ($version ne "") {
+				$host->{motherboard}{version} = $version;
+			}
+		} elsif (/Serial Number:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$serial) = split(/: /);
+			chomp($serial);
+			if ($serial ne "") {
+				$host->{motherboard}{serial} = $serial;
+			}
+		} elsif (/Product Name:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$name) = split(/: /);
+			chomp($name);
+			if ($name ne "") {
+				$host->{motherboard}{name} = $name;
+			}
+		} 
+		next;
+	}
+ }
+close DmiFh;
+
+}
+##############################################
+
+
+##############################################
+## get bios info
+##############################################
+
+sub getbios {
+
+my ($vendor,$version,$date);
+open(DmiFh, "/usr/sbin/dmidecode |") or
+  die "problem running dmidecode";
+while(<DmiFh>)
+{
+	next unless /BIOS Information/;
+	# We've found some Bios info, keep going
+	while(<DmiFh>)
+	{
+		# Keep walking the dmidecode output
+		if (/Characteristics:/) {
+			last;
+		} elsif (/Vendor:/) {
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$vendor) = split(/: /);
+			chomp($vendor);
+			if ($vendor ne "") {
+				$host->{bios}{vendor} = $vendor;
+			}
+		} elsif (/Version:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$version) = split(/: /);
+			chomp($version);
+			if ($version ne "") {
+				$host->{bios}{version} = $version;
+			}
+		} elsif (/Release Date:/){
+			s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+			(undef,$date) = split(/: /);
+			chomp($date);
+			if ($date ne "") {
+				$host->{bios}{date} = $date;
+			}
+		} 
+		next;
+	}
+ }
+close DmiFh;
+
+
+}
+##############################################
+
+
+
+##############################################
+## get hostname info
+##############################################
+sub gethostname {
+	my $hostname = `/bin/hostname`;
+	chomp($hostname);
+	$hostname =~ s/\..*//g;
+	my $domainname = `/bin/dnsdomainname`;
+	chomp($domainname);
+	    $name{domainname} = $domainname;
+	    $name{hostname} = $hostname;
+	close(MEMINFO);
+	# hostname info
+	$host->{domain} = $name{"domainname"};
+	$host->{hostname} = $name{"hostname"};
+} 
+
+
+
+
+##############################################
+## get info from cpu
+##############################################
+sub getcpuinfo {
+	my ($speed,$version);
+	open(CPUINFO,"/proc/cpuinfo");
+	while (<CPUINFO>) {
+		chomp;                  # no newline
+		s/#.*//;                # no comments
+		s/^\s+//;               # no leading white
+		s/\s+$//;               # no trailing white
+		next unless length;     # anything left?
+		my ($var, $value) = split(/\s*:\s*/, $_, 2);
+		$cpuinfo{$var} = $value;
+	}
+	close(CPUINFO);
+	$cpuinfo{"processor"} ++;
+	# cpu info
+	$host->{cpu}{name}	=	qq($cpuinfo{"vendor_id"} $cpuinfo{"model name"} $cpuinfo{"model"});
+	$host->{cpu}{count}	=	$cpuinfo{"processor"};
+	$host->{cpu}{speed}	=	$cpuinfo{"cpu MHz"};
+	$host->{cpu}{speed} 	=~ 	s/\..*//g;
+	$host->{cpu}{cache}	=	$cpuinfo{"cache size"};
+	$host->{cpu}{cache} 	=~ 	s/ KB//g;
+
+
+my ($vendor,$serial,$asset_tag,$type);
+open(DmiFh, "/usr/sbin/dmidecode |") or
+  die "problem running dmidecode";
+PARENT: while(<DmiFh>)
+{
+        next unless /Processor Information/;
+        # We've found some Bios info, keep going
+        while(<DmiFh>)
+        {
+                # Keep walking the dmidecode output
+                if (/Handle /) {
+                        last; 
+                } elsif (/Version:/){
+                        s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*)//g;
+                        (undef,$version) = split(/: /);
+                        chomp($version);
+                        if ($version ne "") {
+                                $host->{cpu}{name} = $version;
+                        }
+                } elsif (/Current Speed:/){
+                        s/(Not Present|\s+$|1234567890|012345|00020003-0004-0005-0006-000700080009|.*O.E.M..*| MHz)//g;
+                        (undef,$speed) = split(/: /);
+                        chomp($speed);
+                        if ($speed ne "") {
+                                $host->{cpu}{speed} = $speed;
+				last PARENT;
+                        }
+                }
+                next;
+        }
+ }
+close DmiFh;
+
+
+
+} 
+
+
+##############################################
+## get info from memory
+##############################################
+sub getmeminfo {
+
+
+
+my ($module,$ram,$memtotal,$swaptotal);
+open(DmiFh, "/usr/sbin/dmidecode |") or
+  die "problem running dmidecode";
+while(<DmiFh>)
+{
+        next unless /Memory Device\n/;
+        # We've found some Bios info, keep going
+        while(<DmiFh>)
+        {
+                # Keep walking the dmidecode output
+                if (/Handle /) {
+                        last;
+                } elsif (/Size: /){
+                        s/( No Module Installed)//g;
+                        s/( MB)//g;
+                        (undef,$module) = split(/: /);
+                        chomp($module);
+                        if ($module ne "") {
+				int($module);
+                                $memtotal = $memtotal + $module;
+                        }
+                }
+        }
+ }
+close DmiFh;
+
+
+	open(MEMINFO,"/proc/meminfo");
+	while (<MEMINFO>) {
+		chomp;                  # no newline
+		s/#.*//;                # no comments
+		s/^\s+//;               # no leading white
+		s/\s+$//;               # no trailing white
+		s/\s+kB$//;             # remove kB
+		next unless length;     # anything left?
+		my ($var, $value) = split(/\s*:\s*/, $_, 2);
+		$meminfo{$var} = $value;
+	}
+	close(MEMINFO);
+	$swaptotal = $meminfo{"SwapTotal"};
+	$swaptotal = $swaptotal / 1024 + 1;
+	($swaptotal,undef) = split(/\./,$swaptotal);
+	# memory info
+	$host->{memory}{memtotal} = $memtotal;
+	$host->{memory}{swaptotal} = $swaptotal;
+	print qq(mem: $memtotal swap: $swaptotal\n);
+} 
+
+
+##############################################
+## get disk info
+##############################################
+sub getdiskinfo {
+	my @disks;
+	my ($idesize, $idemodel,@ides);
+	opendir(PROCIDE,"/proc/ide");
+	my @idehds = grep /^hd.*$/, readdir(PROCIDE);
+	closedir(PROCIDE);
+	chomp(@idehds);
+	for my $hd (@idehds) 
+	{
+		my %ide;
+		open(HDMODEL,"/proc/ide/$hd/model");
+		$idemodel = <HDMODEL>;
+		close(HDMODEL);
+		chomp($idemodel);
+		open(HDSIZE,"/proc/ide/$hd/capacity");
+		$idesize = <HDSIZE>;
+		close(HDSIZE);
+		chomp($idesize);
+		$idesize = $idesize / 2;
+
+		$ide{type} = "ide";
+		$ide{device} = "/dev/" . $hd;
+		$ide{size} = $idesize;
+		$ide{model} = $idemodel;
+                push(@disks,\%ide);
+	}
+
+	my ($scsisize, $scsimodel,@scsis);
+	opendir(PROCSCSI,"/sys/block");
+	my @scsihds = grep /^s.*$/, readdir(PROCSCSI);
+	closedir(PROCSCSI);
+	chomp(@scsihds);
+	for my $hd (@scsihds) 
+	{
+		my %scsi;
+		open(HDMODEL,"/sys/block/$hd/device/model");
+		$scsimodel = <HDMODEL>;
+		close(HDMODEL);
+		chomp($scsimodel);
+		$scsimodel =~ s/\s+$//g;
+		open(HDSIZE,"/sys/block/$hd/size");
+		$scsisize = <HDSIZE>;
+		close(HDSIZE);
+		chomp($scsisize);
+		$scsisize = $scsisize / 2;
+
+		$scsi{type} = "scsi";
+		$scsi{device} = "/dev/" . $hd;
+		$scsi{size} = $scsisize;
+		$scsi{model} = $scsimodel;
+                push(@disks,\%scsi);
+	}
+        $host->{disk} = \@disks;
+}
+
+
+##############################################
+## get network info
+##############################################
+sub getnetinfo {
+	my (@nics);
+	open (IFCONFIG,"/sbin/ifconfig -a |") || die "Cannot open /sbin/ifconfig";
+	my ($macaddr,$ipaddr,$broadcast,$netmask,$ipv6addr,$interface);
+	while (<IFCONFIG>) {	
+		chomp();
+	        if (/^(\S+)/ )
+	        {	
+			# we are in a device block
+			$interface = $1;
+			if (/.*\s+HWaddr\s+((\w{1,2}:){5}\w{1,2})/)
+			{
+				$macaddr = $1;
+			} 
+			if ($interface =~ /^eth0/) 
+			{
+				$host->{hwid} = $macaddr;
+			}
+		}
+		elsif (/.*\s+inet addr:((\d{1,3}\.){3}\d{1,3})/)
+		{
+			$ipaddr = $1;
+			if (/.*\s+Bcast:((\d{1,3}\.){3}\d{1,3})/)
+			{
+				$broadcast = $1;
+			}
+			if (/.*\s+Mask:((\d{1,3}\.){3}\d{1,3})/)
+			{
+				$netmask = $1;
+			}
+		}
+		elsif (/.*\s+inet6 addr: (\S+)\s+/)
+		{
+			$ipv6addr = $1;
+		}
+		elsif ($interface =~ /^eth.*/) 
+		{
+			my %nic;
+			$nic{interface} = $interface if $interface;
+			$nic{macaddr} = $macaddr if $macaddr;
+			$nic{ipaddr} = $ipaddr if $ipaddr;
+			$nic{netmask} = $netmask if $netmask;
+			$nic{broadcast} = $broadcast if $broadcast;
+			push(@nics,\%nic);
+			undef $interface;
+			undef $macaddr;
+			undef $ipaddr;
+			undef $netmask;
+			undef $broadcast;
+		}
+	}
+	close(IFCONFIG);
+	$host->{nic} = \@nics;
+	
+	
+}
+
+##############################################
+## get mounts
+##############################################
+sub getmounts {
+	my (@dfoutput,$filesystem,$fssize,$mountpoint);
+	my @filesystems;
+	
+	chomp(@dfoutput = `/bin/df -PT`);
+	#chomp(my @dfoutput = `cat /tmp/ifconfig`);
+	for my $line (@dfoutput)
+	{
+	        if ($line =~ /^\// )
+	        {
+			my %fs;
+			($fs{device}, $fs{type}, $fs{size}, undef, undef, undef, $fs{mountpoint}) = split(/\s+/, $line);
+			push(@filesystems,\%fs);
+	        } 
+	
+	}
+        $host->{filesystem} = \@filesystems;
+}
+
+##############################################
+## get kernel
+##############################################
+
+sub getosinfo {
+	chomp($host->{kernel} = `/bin/uname -sr`);
+	chomp($host->{arch} = `/bin/uname -m`);
+    if ( stat("/etc/redhat-release")){
+	chomp($host->{osname} = `/bin/cat /etc/redhat-release`);
+    } elsif ( stat("/etc/debian_version")){
+	chomp($host->{osname} = `/bin/cat /etc/debian_version`);
+    }
+}
+
+##############################################
+## get PCI hardware
+##############################################
+
+sub getpcihardware {
+        
+        open(PIPE, "lspci |") || die "Couldn't execute lspci";
+        my @lines = <PIPE>;
+        close(PIPE);
+        
+        foreach my $line (@lines)
+        {
+                chomp $line; 
+                
+                # get the graphics card type
+                my ($type, $model) = split(/: /, $line);
+                if($type =~ m/VGA/) {
+                        $host->{pci}{video} = $model;
+                } elsif($type =~ m/Ethernet/) {
+                        $host->{pci}{net} = $model;
+                } elsif($model =~ m/Ethernet/) {
+                        $host->{pci}{net} = $model;
+                } elsif($type =~ m/Multimedia/) {
+                        $host->{pci}{audio} = $model;
+                } elsif($type =~ m/USB/) {
+                        $host->{pci}{usb} = $model;
+                } elsif($type =~ m/1394/) {
+                        $host->{pci}{firewire} = $model;
+                } elsif($type =~ m/RAM/) {
+                        $host->{pci}{ram} = $model;
+                } elsif($type =~ m/IDE/) {
+                        $host->{pci}{ide} = $model;
+                } elsif($type =~ m/SCSI/) {
+                        $host->{pci}{scsi} = $model;
+                } 
+        } 
+}
+
+
+sub getdfg {
+	open(PIPE, "/sbin/route |") || die "Couldn't execute /sbin/route";
+	my @lines = <PIPE>;
+	close(PIPE);
+
+	foreach my $line (@lines)
+	{
+		chomp $line;
+		my ($dest, $dfg) = split(/\s+/, $line);
+		if ($dest =~ m/efault/) 
+		{
+			$host->{dfg} = $dfg;
+		}
+	}
+
+
+
+
+
+
+
+}
+
+##############################################
+## get packages
+##############################################
+sub getrpmpackages {
+	my (@output,$filesystem,$fssize,$mountpoint);
+	my @packages;
+	
+	open(PIPE, "rpm -qa --qf \"%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n\" |") || die "Couldn't execute rpm";
+        my @lines = <PIPE>;
+        close(PIPE);
+	for my $line (@lines)
+	{
+		chomp($line);
+		my %pkg;
+		($pkg{name}, $pkg{version}, $pkg{arch}) = split(/\t/, $line);
+		push(@packages,\%pkg);
+	
+	}
+        $host->{package} = \@packages;
+}
+
+##############################################
+## get packages
+##############################################
+sub getdebpackages {
+	my (@output,$filesystem,$fssize,$mountpoint);
+	my @packages;
+	
+	open(PIPE, "dpkg-query -W --showformat='\${Package}\t\${Version}\t\${Architecture}\n' |") || die "Couldn't execute rpm";
+        my @lines = <PIPE>;
+        close(PIPE);
+	for my $line (@lines)
+	{
+		chomp($line);
+		my %pkg;
+		($pkg{name}, $pkg{version}, $pkg{arch}) = split(/\t/, $line);
+		push(@packages,\%pkg);
+	
+	}
+        $host->{package} = \@packages;
+}

@@ -1,0 +1,39 @@
+0.5.2 - 2009.04.19
+
+includes bug fixes, error checks, etc.
+
+Fixes bugs #1,#2,#4,#6,#8,#10,#11
+Related issues
+
+    * Bug #1: need to check for hwid
+    * Bug #2: release field is creating problems with some packages
+    * Bug #4: Smarty include path error
+    * Bug #6: list of software not updating
+    * Bug #8: IP address sorting
+    * Bug #10: package insertion fails
+    * Bug #11: software page displays alphabet repeatedly
+    * Bug #26: blank screen if no hosts found in DB
+
+0.5.1  - 2008.12.19
+ Bug Fixes, scheme changes, XML spec updates 
+
+ * Filesystem and disks have had the limit raised from 2TB to 16 zettabytes.  
+ * OS Name limit now 100 characters
+ * Added Base Architecuture to host node
+ * Added Unified Cache to CPU node
+ * Split up 'version' and 'release' into 2 different fields for packages.  'release' is optional input
+ * Various UI bug fixes
+ * Renamed files, added contrib directory, in an attempt to standardize
+
+ To update your DB scheme, please run the following:
+	mysql -u mysqluser -p mysqldatabse < contrib/update_0.5.0-0.5.1.sql
+
+ To update the data in your tables and your schema at the same time:
+	php update_0.5.0-0.5.1.php 
+   This will update your packages table to include release information.
+   If you don't want this, comment it out.  If you do, you'll want to	
+   check your gathering scripts to make sure they also sent the release
+   information properly.  
+	
+0.5.0  - Dec 8 2007
+ First Public Release

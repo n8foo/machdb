@@ -1,0 +1,79 @@
+#!/usr/bin/perl -w
+# This file is part of MachDB.  For license info, read LICENSE
+
+# USER CONFIG
+
+# information about the server MachDB lives on
+my $server       = "www.example.com";
+my $port         = 80;
+# the folder MachDB lives in.  For instance, if it's in
+# http://www.example.com/machdb, set $uri to "machdb".
+my $uri          = "machdb";
+
+# if you have secured collect.php, set $auth_needed to 1 and $user and $pass
+# appropriately. See http://www.mybrainhurts.com/wiki/Wikia:MachDBSecureCollect
+my $auth_needed = 1;
+my $user        = 'machdb';
+my $pass        = 'password';
+my $realm       = 'MachDB';
+
+# how much machdb-send should yak at you.  Set to 0 if you're running it from
+# cron and don't need the debugging data.
+my $verbose  = 1;
+
+# you shouldn't need to change these options
+my $xmlfile  = "/var/machdb/host.xml";
+my $hostname = `/bin/hostname`;
+chomp($hostname);
+
+# DO NOT EDIT BELOW THIS LINE
+
+use strict;
+use warnings;
+use LWP 5.64;
+
+open(XML, $xmlfile) or die "Couldn't open $xmlfile: $!";
+my @xml = <XML>;
+close(XML);
+my $xml = join(" ", @xml);
+
+# HWID check
+use XML::Simple qw(:strict);
+my $host = XMLin($xmlfile,ForceArray => 1,KeyAttr => [],noattr => 1);
+die "no HWID found, cannot continue"
+ unless defined $host->{hwid};
+
+my $browser = LWP::UserAgent->new;
+$browser->agent("MachDB/0.5.2-$hostname");
+
+if ($auth_needed) {
+        $browser->credentials(
+                 "$server:$port",
+                 $realm,
+                 $user => $pass
+                 );
+}
+
+my $url = "http://$server:$port/$uri/collect/collect.php";
+my $response = $browser->post($url,
+                              [ xml      => $xml,
+                                hostname => $hostname, ]
+        );
+die "$url error: ", $response->status_line()
+    unless $response->is_success();
+die "Weird content type at $url: ", $response->content_type()
+    unless $response->content_type() eq 'text/html';
+
+if ($response->status_line() =~ /OK/) {
+    print "Response good\n" if $verbose;
+} else {
+    die "Response error" . $response->status_line() . "\n";
+}
+
+my @data = $response->content();
+
+if ($verbose) {
+        print "Connecting to $url\n";
+        print @data;
+}
+

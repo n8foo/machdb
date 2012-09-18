@@ -1,0 +1,53 @@
+#! /usr/bin/perl -w
+# This file is part of MachDB.  For license info, read LICENSE
+
+# USER CONFIG
+my $server 	= "www.machdb.org";
+my $uri 	= "/machdb/devel";
+my $xmlfile 	= "/var/machdb/host.xml";
+my $hostname 	= `/bin/hostname`;
+chomp($hostname);
+
+# DO NOT EDIT BELOW THIS LINE
+
+#my $curl = `which curl`;
+#chomp($curl);
+#system qq($curl --data \@$xml http://$server/machdb/collect.php);
+
+open(XML,"$xmlfile");
+my @xml = <XML>;
+close(XML);
+my $xml = join(" ",@xml);
+
+# HWID check
+use XML::Simple qw(:strict);
+my $host = XMLin($xmlfile,ForceArray => 1,KeyAttr => [],noattr => 1);
+die "no HWID found, cannot continue"
+ unless defined $host->{hwid};
+
+use Data::Dumper;
+use strict;
+use warnings;
+use LWP 5.64;
+my $browser = LWP::UserAgent->new;
+$browser->agent("MachDB/0.5.2-$hostname");
+
+my $url = "http://$server/$uri/collect/collect.php";
+my $response = $browser->post( $url,
+  [ 'xml' => $xml,
+    'hostname' => $hostname ]
+);
+# quick error check
+die "$url error: ", $response->status_line
+ unless $response->is_success;
+die "Weird content type at $url -- ", $response->content_type
+ unless $response->content_type eq 'text/html';
+
+if( $response->status_line =~ m{OK} ) {
+  print "Response Good\n";
+} else {
+  print "Error\n";
+}
+my @data = $response->content;
+print qq(Connecting to $url\n);
+print @data;
